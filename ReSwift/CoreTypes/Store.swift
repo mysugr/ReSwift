@@ -23,15 +23,15 @@ open class Store<State: StateType>: StoreType {
 
     /*private (set)*/ public var state: State! {
         didSet {
+			isUpdatingSubscribers = true
             subscriptions.forEach {
-				isUpdatingSubscribers = true
                 if $0.subscriber == nil {
                     subscriptions.remove($0)
                 } else {
                     $0.newValues(oldState: oldValue, newState: state)
                 }
-				isUpdatingSubscribers = false
             }
+			isUpdatingSubscribers = false
         }
     }
 
