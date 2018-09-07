@@ -24,22 +24,32 @@ open class Store<State: StateType>: StoreType {
     /*private (set)*/ public var state: State! {
         didSet {
             subscriptions.forEach {
+				isUpdatingSubscribers = true
                 if $0.subscriber == nil {
                     subscriptions.remove($0)
                 } else {
                     $0.newValues(oldState: oldValue, newState: state)
                 }
+				isUpdatingSubscribers = false
             }
         }
     }
 
     public var dispatchFunction: DispatchFunction!
 
+	public var alwaysDispatchActionsOnMainQueue = false
+
     private var reducer: Reducer<State>
 
     var subscriptions: Set<SubscriptionType> = []
 
     private var isDispatching = false
+
+	private var isUpdatingSubscribers = false
+
+	private lazy var backgroundActionDispatchQueue: DispatchQueue = {
+		DispatchQueue(label: "reswift.github.io.ReSwift.backgroundActionDispatchQueue")
+	}()
 
     /// Indicates if new subscriptions attempt to apply `skipRepeats` 
     /// by default.
@@ -162,7 +172,20 @@ open class Store<State: StateType>: StoreType {
     }
 
     open func dispatch(_ action: Action) {
-        dispatchFunction(action)
+		if isUpdatingSubscribers {
+			let mainQueueRequired = (Thread.isMainThread || alwaysDispatchActionsOnMainQueue)
+			let dispatchQueue = mainQueueRequired ? DispatchQueue.main : backgroundActionDispatchQueue
+
+			dispatchQueue.async {
+				self.dispatchFunction(action)
+			}
+		} else if alwaysDispatchActionsOnMainQueue && !Thread.isMainThread {
+			DispatchQueue.main.async {
+				self.dispatchFunction(action)
+			}
+		} else {
+			dispatchFunction(action)
+		}
     }
 
     open func dispatch(_ actionCreatorProvider: @escaping ActionCreator) {
