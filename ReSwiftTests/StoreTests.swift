@@ -56,7 +56,9 @@ class DeInitStore<State: StateType>: Store<State> {
                 reducer: reducer,
                 state: state,
                 middleware: [],
-                automaticallySkipsRepeats: false)
+                automaticallySkipsRepeats: false,
+				alwaysDispatchOnMainQueue: false,
+				avoidDispatchesDuringSubscriberUpdates: false)
             self.deInitAction = deInitAction
     }
 
@@ -64,12 +66,16 @@ class DeInitStore<State: StateType>: Store<State> {
         reducer: @escaping Reducer<State>,
         state: State?,
         middleware: [Middleware<State>],
-        automaticallySkipsRepeats: Bool) {
+        automaticallySkipsRepeats: Bool,
+        alwaysDispatchOnMainQueue: Bool,
+        avoidDispatchesDuringSubscriberUpdates: Bool) {
             super.init(
                 reducer: reducer,
                 state: state,
                 middleware: middleware,
-                automaticallySkipsRepeats: automaticallySkipsRepeats)
+                automaticallySkipsRepeats: automaticallySkipsRepeats,
+				alwaysDispatchOnMainQueue: alwaysDispatchOnMainQueue,
+				avoidDispatchesDuringSubscriberUpdates: avoidDispatchesDuringSubscriberUpdates)
     }
 }
 

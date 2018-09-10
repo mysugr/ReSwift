@@ -37,8 +37,6 @@ open class Store<State: StateType>: StoreType {
 
     public var dispatchFunction: DispatchFunction!
 
-	public var alwaysDispatchActionsOnMainQueue = false
-
     private var reducer: Reducer<State>
 
     var subscriptions: Set<SubscriptionType> = []
@@ -47,9 +45,9 @@ open class Store<State: StateType>: StoreType {
 
 	private var isUpdatingSubscribers = false
 
-	private lazy var backgroundActionDispatchQueue: DispatchQueue = {
-		DispatchQueue(label: "reswift.github.io.ReSwift.backgroundActionDispatchQueue")
-	}()
+	private let alwaysDispatchOnMainQueue: Bool
+
+	private let avoidDispatchesDuringSubscriberUpdates: Bool
 
     /// Indicates if new subscriptions attempt to apply `skipRepeats` 
     /// by default.
@@ -67,14 +65,28 @@ open class Store<State: StateType>: StoreType {
     /// - parameter automaticallySkipsRepeats: If `true`, the store will attempt 
     ///   to skip idempotent state updates when a subscriber's state type 
     ///   implements `Equatable`. Defaults to `true`.
+	/// - parameter alwaysDispatchOnMainQueue: If `true`, the store will automatically
+	///   dispatch all actions on the main queue (even if the `dispatch(:)` call has
+	///   been made from a different thread/queue. Defaults to `false`.
+	/// - parameter avoidDispatchesDuringSubscriberUpdates: If `true`, the store will
+	///	  automatically postpone dispatching of new actions until the most recent state
+	///   update has been distributed to all subscribers.
+	///   Note that this parameter is ignored if `alwaysDispatchOnMainQueue` is `false`.
+	///   This is because it would be impossible to determine on which `DispatchQueue`
+	///   to enqueue an action if it is not the main queue.
+	///   Defaults to `false`.
     public required init(
         reducer: @escaping Reducer<State>,
         state: State?,
         middleware: [Middleware<State>] = [],
-        automaticallySkipsRepeats: Bool = true
+        automaticallySkipsRepeats: Bool = true,
+        alwaysDispatchOnMainQueue: Bool = false,
+        avoidDispatchesDuringSubscriberUpdates: Bool = false
     ) {
         self.subscriptionsAutomaticallySkipRepeats = automaticallySkipsRepeats
         self.reducer = reducer
+		self.alwaysDispatchOnMainQueue = alwaysDispatchOnMainQueue
+		self.avoidDispatchesDuringSubscriberUpdates = avoidDispatchesDuringSubscriberUpdates
 
         // Wrap the dispatch function with all middlewares
         self.dispatchFunction = middleware
@@ -172,20 +184,26 @@ open class Store<State: StateType>: StoreType {
     }
 
     open func dispatch(_ action: Action) {
-		if isUpdatingSubscribers {
-			let mainQueueRequired = (Thread.isMainThread || alwaysDispatchActionsOnMainQueue)
-			let dispatchQueue = mainQueueRequired ? DispatchQueue.main : backgroundActionDispatchQueue
+		guard alwaysDispatchOnMainQueue else {
+			dispatchFunction(action)
+			return
+		}
 
-			dispatchQueue.async {
-				self.dispatchFunction(action)
-			}
-		} else if alwaysDispatchActionsOnMainQueue && !Thread.isMainThread {
+		guard Thread.isMainThread else {
 			DispatchQueue.main.async {
 				self.dispatchFunction(action)
 			}
-		} else {
-			dispatchFunction(action)
+			return
 		}
+
+		guard avoidDispatchesDuringSubscriberUpdates && isUpdatingSubscribers else {
+			DispatchQueue.main.async {
+				self.dispatchFunction(action)
+			}
+			return
+		}
+
+		dispatchFunction(action)
     }
 
     open func dispatch(_ actionCreatorProvider: @escaping ActionCreator) {
