@@ -196,14 +196,13 @@ open class Store<State: StateType>: StoreType {
 			return
 		}
 
-		guard avoidDispatchesDuringSubscriberUpdates && isUpdatingSubscribers else {
+		if avoidDispatchesDuringSubscriberUpdates && isUpdatingSubscribers {
 			DispatchQueue.main.async {
 				self.dispatchFunction(action)
 			}
-			return
+		} else {
+			dispatchFunction(action)
 		}
-
-		dispatchFunction(action)
     }
 
     open func dispatch(_ actionCreatorProvider: @escaping ActionCreator) {
