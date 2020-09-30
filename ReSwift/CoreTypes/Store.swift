@@ -6,6 +6,8 @@
 //  Copyright © 2015 DigiTales. All rights reserved.
 //
 
+import Foundation
+
 /**
  This class is the default implementation of the `Store` protocol. You will use this store in most
  of your applications. You shouldn't need to implement your own store.
@@ -23,6 +25,7 @@ open class Store<State: StateType>: StoreType {
 
     /*private (set)*/ public var state: State! {
         didSet {
+			isUpdatingSubscribers = true
             subscriptions.forEach {
                 if $0.subscriber == nil {
                     subscriptions.remove($0)
@@ -30,6 +33,7 @@ open class Store<State: StateType>: StoreType {
                     $0.newValues(oldState: oldValue, newState: state)
                 }
             }
+			isUpdatingSubscribers = false
         }
     }
 
@@ -40,6 +44,12 @@ open class Store<State: StateType>: StoreType {
     var subscriptions: Set<SubscriptionType> = []
 
     private var isDispatching = false
+
+	private var isUpdatingSubscribers = false
+
+	private let alwaysDispatchOnMainQueue: Bool
+
+	private let avoidDispatchesDuringSubscriberUpdates: Bool
 
     /// Indicates if new subscriptions attempt to apply `skipRepeats` 
     /// by default.
@@ -57,14 +67,28 @@ open class Store<State: StateType>: StoreType {
     /// - parameter automaticallySkipsRepeats: If `true`, the store will attempt 
     ///   to skip idempotent state updates when a subscriber's state type 
     ///   implements `Equatable`. Defaults to `true`.
+	/// - parameter alwaysDispatchOnMainQueue: If `true`, the store will automatically
+	///   dispatch all actions on the main queue (even if the `dispatch(:)` call has
+	///   been made from a different thread/queue. Defaults to `false`.
+	/// - parameter avoidDispatchesDuringSubscriberUpdates: If `true`, the store will
+	///	  automatically postpone dispatching of new actions until the most recent state
+	///   update has been distributed to all subscribers.
+	///   Note that this parameter is ignored if `alwaysDispatchOnMainQueue` is `false`.
+	///   This is because it would be impossible to determine on which `DispatchQueue`
+	///   to enqueue an action if it is not the main queue.
+	///   Defaults to `false`.
     public required init(
         reducer: @escaping Reducer<State>,
         state: State?,
         middleware: [Middleware<State>] = [],
-        automaticallySkipsRepeats: Bool = true
+        automaticallySkipsRepeats: Bool = true,
+        alwaysDispatchOnMainQueue: Bool = false,
+        avoidDispatchesDuringSubscriberUpdates: Bool = false
     ) {
         self.subscriptionsAutomaticallySkipRepeats = automaticallySkipsRepeats
         self.reducer = reducer
+		self.alwaysDispatchOnMainQueue = alwaysDispatchOnMainQueue
+		self.avoidDispatchesDuringSubscriberUpdates = avoidDispatchesDuringSubscriberUpdates
 
         // Wrap the dispatch function with all middlewares
         self.dispatchFunction = middleware
@@ -162,7 +186,25 @@ open class Store<State: StateType>: StoreType {
     }
 
     open func dispatch(_ action: Action) {
-        dispatchFunction(action)
+		guard alwaysDispatchOnMainQueue else {
+			dispatchFunction(action)
+			return
+		}
+
+		guard Thread.isMainThread else {
+			DispatchQueue.main.async {
+				self.dispatchFunction(action)
+			}
+			return
+		}
+
+		if avoidDispatchesDuringSubscriberUpdates && isUpdatingSubscribers {
+			DispatchQueue.main.async {
+				self.dispatchFunction(action)
+			}
+		} else {
+			dispatchFunction(action)
+		}
     }
 
     open func dispatch(_ actionCreatorProvider: @escaping ActionCreator) {
