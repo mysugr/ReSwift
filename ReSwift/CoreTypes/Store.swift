@@ -45,11 +45,18 @@ open class Store<State: StateType>: StoreType {
 
     private var isDispatching = false
 
-	private var isUpdatingSubscribers = false
+    private var isUpdatingSubscribers = false {
+        didSet {
+            guard !isUpdatingSubscribers else { return }
+            processSynchronousActionsToDispatch()
+        }
+    }
 
 	private let alwaysDispatchOnMainQueue: Bool
 
 	private let avoidDispatchesDuringSubscriberUpdates: Bool
+
+    private var synchronousActionsToDispatch = [Action]()
 
     /// Indicates if new subscriptions attempt to apply `skipRepeats` 
     /// by default.
@@ -199,9 +206,7 @@ open class Store<State: StateType>: StoreType {
 		}
 
 		if avoidDispatchesDuringSubscriberUpdates && isUpdatingSubscribers {
-			DispatchQueue.main.async {
-				self.dispatchFunction(action)
-			}
+            synchronousActionsToDispatch.append(action)
 		} else {
 			dispatchFunction(action)
 		}
@@ -226,6 +231,13 @@ open class Store<State: StateType>: StoreType {
                 self.dispatch(action)
                 callback?(self.state)
             }
+        }
+    }
+
+    private func processSynchronousActionsToDispatch() {
+        while !synchronousActionsToDispatch.isEmpty {
+            let action = synchronousActionsToDispatch.removeFirst()
+            dispatchFunction(action)
         }
     }
 
